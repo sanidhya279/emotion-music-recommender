@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Based Music Recommender</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load face-api.js for in-browser emotion detection -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        /* Custom styles for a professional look */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f3f4f6;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        video {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1); /* Mirror the video feed for a natural feel */
+        }
+        #loading-message {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.25rem;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 max-w-2xl bg-white rounded-xl shadow-lg">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-4">Emotion Music Recommender</h1>
+        <p class="text-center text-gray-500 mb-6">Let's find a song that matches your mood!</p>
+
+        <!-- Video container for webcam feed -->
+        <div id="video-container" class="mx-auto mb-6">
+            <video id="video" width="500" height="375" autoplay muted playsinline></video>
+            <div id="loading-message">Loading AI Models...</div>
+        </div>
+
+        <!-- User Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+                <label for="language" class="block text-sm font-medium text-gray-700">Language</label>
+                <select id="language" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    <option>Hindi</option>
+                    <option>English</option>
+                    <option>Punjabi</option>
+                    <option>Tamil</option>
+                </select>
+            </div>
+            <div>
+                <label for="singer" class="block text-sm font-medium text-gray-700">Favorite Singer (Optional)</label>
+                <input type="text" id="singer" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., Arijit Singh">
+            </div>
+        </div>
+
+        <!-- Action Button -->
+        <div class="text-center mb-6">
+            <button id="capture-button" class="w-full md:w-auto bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out disabled:bg-gray-400">
+                Detect My Emotion
+            </button>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="text-center p-4 bg-gray-50 rounded-lg min-h-[80px]">
+            <p class="text-gray-600">Your results will appear here.</p>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const captureButton = document.getElementById('capture-button');
+        const loadingMessage = document.getElementById('loading-message');
+        const resultsDiv = document.getElementById('results');
+        const languageSelect = document.getElementById('language');
+        const singerInput = document.getElementById('singer');
+
+        // --- 1. Load the AI Models ---
+        // Models are now loaded from a reliable remote URL to fix all path errors.
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
+        Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+        ]).then(startVideo).catch(err => {
+            loadingMessage.innerText = "Error loading AI models. Please refresh.";
+            console.error(err);
+        });
+
+        // --- 2. Start the Webcam ---
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: {} })
+                .then(stream => {
+                    video.srcObject = stream;
+                    loadingMessage.style.display = 'none'; // Hide loading message once video starts
+                })
+                .catch(err => {
+                    loadingMessage.innerText = "Could not access webcam. Please allow camera access.";
+                    console.error("Webcam Error:", err);
+                });
+        }
+
+        // --- 3. Handle the Emotion Detection ---
+        captureButton.addEventListener('click', async () => {
+            resultsDiv.innerHTML = '<p class="text-gray-600">Detecting...</p>';
+
+            // Use face-api.js to detect a face and expressions
+            const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceExpressions();
+
+            if (detections) {
+                // Find the dominant emotion
+                const expressions = detections.expressions;
+                let dominantEmotion = "neutral";
+                let maxConfidence = 0;
+
+                for (const [emotion, confidence] of Object.entries(expressions)) {
+                    if (confidence > maxConfidence) {
+                        maxConfidence = confidence;
+                        dominantEmotion = emotion;
+                    }
+                }
+                
+                displayRecommendation(dominantEmotion.charAt(0).toUpperCase() + dominantEmotion.slice(1));
+
+            } else {
+                resultsDiv.innerHTML = '<p class="text-red-500 font-semibold">Could not detect a face. Please try again.</p>';
+            }
+        });
+
+        // --- 4. Display the Recommendation ---
+        function displayRecommendation(emotion) {
+            const emotionMap = {
+                'happy': 'happy party',
+                'sad': 'sad emotional',
+                'angry': 'angry pump up',
+                'neutral': 'calm relaxing',
+                'fear': 'energetic motivational',
+                'disgust': 'rock',
+                'surprise': 'upbeat pop'
+            };
+            const searchEmotion = emotionMap[emotion.toLowerCase()] || emotion.toLowerCase();
+            
+            const language = languageSelect.value;
+            const singer = singerInput.value;
+            
+            const query = `${language} ${searchEmotion} song ${singer}`;
+            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+
+            resultsDiv.innerHTML = `
+                <p class="text-lg font-semibold text-gray-800">Emotion Detected: <span class="text-indigo-600">${emotion}</span></p>
+                <p class="text-gray-600 mb-3">Here is a YouTube link for you:</p>
+                <a href="${searchUrl}" target="_blank" class="inline-block bg-red-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-red-700 transition">
+                    Play on YouTube
+                </a>
+            `;
+        }
+    </script>
+</body>
+</html>
